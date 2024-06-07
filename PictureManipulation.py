@@ -1,17 +1,11 @@
 import cv2
 import easyocr
-import matplotlib.pyplot as plt
 import datetime
 
-# def draw_bounding_boxes(image, detections, threshold=0.25):
-#     #Helper function in case anything goes wrong
-#     for bbox, text in detections:
-#         cv2.rectangle(image, tuple(map(int, bbox[0])), tuple(map(int, bbox[2])), (0, 255, 0), 5)
-
-#         cv2.putText(image, text, tuple(map(int, bbox[0])), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.65, (255, 0, 0), 2)
+reader = easyocr.Reader(['en'])
 
 def verifyData(sorted_result):
-    if('W/C' not in sorted_result[0][0].upper() or 'DATE' not in sorted_result[0][0].upper()):
+    if('W/C' not in sorted_result[0][0].upper() and 'DATE' not in sorted_result[0][0].upper()):
         print('Somethings wrong with this image, try again')
         return False
     sorted_result.pop(0)
@@ -53,15 +47,21 @@ def getPossibleDays(verified_data, start_time):
     possible_days = []
     for row in verified_data:
         for idx, value in enumerate(row):
-            if('Day Off' in value):
+
+            if('-' in value and (value.split('-')[0].isdigit() and value.split('-')[1].isdigit())):
+                if(int(value.split('-')[0]) > int(value.split('-')[1])):
+                    if(start_time >= int(value.split('-')[0]) and start_time < int(value.split('-')[1]) + 2000):
+                        continue
+                    elif(start_time < int(value.split('-')[0]) and start_time + 400 > int(value.split('-')[0])):
+                        continue
+                if(int(value.split('-')[1]) <= (start_time - 200)):
+                    day_off_date = datetime.datetime.strptime(row[0], "%d/%m/%Y") + datetime.timedelta(days=idx - 1)
+                    if(day_off_date >= datetime.datetime.today()):
+                        possible_days.append(day_off_date.strftime(value + ' %A %d/%m/%Y'))
+            else:
                 day_off_date = datetime.datetime.strptime(row[0], "%d/%m/%Y") + datetime.timedelta(days=idx - 1)
                 if(day_off_date >= datetime.datetime.today()):
                     possible_days.append(day_off_date.strftime('%A %d/%m/%Y'))
-            elif('-' in value and int(value.split('-')[0]) + 400 < start_time and int(value.split('-')[1]) <= (start_time - 200)): # THINK OF A BETTER WAY OF DOING THIS, BROTHER THIS STINKS.
-            #Probably should check if value is in range between the start time and end time also if the value is over 0000 then it's in the next day
-                day_off_date = datetime.datetime.strptime(row[0], "%d/%m/%Y") + datetime.timedelta(days=idx - 1)
-                if(day_off_date >= datetime.datetime.today()):
-                    possible_days.append(day_off_date.strftime(value + ' %A %d/%m/%Y'))
     return possible_days
 
 def sortDays(result):
@@ -70,7 +70,7 @@ def sortDays(result):
     division = 0
     while(i < len(result)):
         value = result[i]
-        if('/' in value[1] and value[1][0] != 'A' and value[1][-1] != 'L'):
+        if('DATE' in value[1].upper() or '/' in value[1] and value[1][0].isdigit() and value[1][-1].isdigit()):
             sorted_result.append([result.pop(i)])
             i -= 1 #THERE HAS TO BE A BETTER WAY
         i += 1
@@ -87,38 +87,36 @@ def sortDays(result):
                     i-=1 #Think of a nicer way to do this
             i+=1
     just_characters = []
+
     for row in sorted_result:
         just_characters.append([word[1] for word in sorted(row, key=lambda element: element[0][0][0])])
 
     return just_characters
 
-if __name__ == '__main__':
-    print("Please give me a FULL file path to a picture of Ross' rota")
-    rota_picture = input()
-    print("Please give me a start time (in 24 hour time with no special characters)")
-    start_time = int(input())
-    reader = easyocr.Reader(['en'])
-
+def ripTextFromImage(rota_picture):
     img = cv2.imread(rota_picture)
     gry = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
 
     thr = cv2.adaptiveThreshold(gry, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                     cv2.THRESH_BINARY, 127, 57)
-    cv2.imwrite('cropped_thresh.png', thr)
 
-    result = reader.readtext(thr,  paragraph=True, y_ths = 0.2, slope_ths = 1,width_ths=1.5, height_ths=1.2, decoder ='beamsearch', beamWidth=50, min_size=7, mag_ratio=1.5)
-    print("------RESULTS-----")
-
-    # draw_bounding_boxes(thr, result)
-
-    # plt.imshow(thr)
-
-    # plt.show()
+    result = reader.readtext(thr,  paragraph=True, y_ths = 0.1, slope_ths = 1,width_ths=1.5, height_ths=1.2, decoder ='beamsearch', beamWidth=50, min_size=7, mag_ratio=1.5)
 
     sorted_result = sortDays(result)
 
     verified_data = verifyData(sorted_result)
+    return verified_data
+
+if __name__ == '__main__':
+    #For local debugging
+    print("Please give me a FULL file path to a picture of Ross' rota")
+    rota_picture = input()
+    print("Please give me a start time (in 24 hour time with no special characters)")
+    start_time = int(input())
+
+    verified_data = ripTextFromImage(rota_picture)
+
     if(verified_data):
         days_off = []
         blocked_by_tuesday_or_thursday_days = [] # This should change to be decided by user
@@ -141,3 +139,5 @@ if __name__ == '__main__':
         print('The following are days where Ross finishes early enough to play')
         for day in finishes_early_enough_days:
             print(day)
+    print("Press enter to end")
+    input()
